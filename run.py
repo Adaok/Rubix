@@ -172,4 +172,4 @@ class Bot(discord.Client):
         print("--------------")
 
 rubix=Bot()
-rubix.run("isaakrogers1@gmail.com","Xeta1230")
+rubix.run("USERNAME","PASSWORD")
