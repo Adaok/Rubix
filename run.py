@@ -2,7 +2,7 @@ import asyncio
 import discord
 import random
 
-_VERSION="1.0.3"
+_VERSION="1.0.5"
 
 if not discord.opus.is_loaded():
     discord.opus.load_opus("libopus-0.x64.dll")
@@ -20,6 +20,7 @@ class Bot(discord.Client):
         self.play_next=asyncio.Event()
         self.player=None
         self.current=None
+        self.afkusers=[]
 
     def roll(self,dice):
         count = int(dice.split("d")[0])
@@ -58,22 +59,39 @@ class Bot(discord.Client):
             await self.send_message(message.channel,"Sorry, I don't work in private messaging!")
             return
 
+        if message.content.startswith("!"):
+            await self.delete_message(message)
+            print("Command received from "+ message.author.name +": "+ message.content)
+        else:
+            for member in message.mentions:
+                if member.id in self.afkusers:
+                    await self.send_message(message.channel, member.mention +" is marked as afk. I'll deliver your message to them by PM.")
+                    await self.send_message(member, message.author.mention +" tried to say something to you while you were afk. Their message was:\n"+ message.content)
+            
+
+        if "deez nutz" in message.content.lower() or "deez nuts" in message.content.lower():
+            await self.send_message(message.channel,"Got Eem!")
+
         bannedwords = open("data/bannedwords.txt","r")
-        nsfwchannels = open("data/nsfwchannels.txt","r")
 
         for word in bannedwords:
             word=word.strip().lower()
-            if word == message.content or " "+word in message.content:
+            if word == message.content or " "+word in message.content or word+" " in message.content:
+                print("Detected vulgarity in "+message.channel.name+"@"+message.server.name)
                 isAllowed=False
+                nsfwchannels = open("data/nsfwchannels.txt","r")
                 for entry in nsfwchannels:
                     channel=entry.split("@")[0].strip()
                     server=entry.split("@")[1].strip()
                     if server=="*" or server==message.server.name:
                         if channel=="*" or channel==message.channel.name:
+                            print("\tIgnoring due to whitelist.")
                             isAllowed=True
                 if not isAllowed:
-                     await self.delete_message(message)
-                     await self.send_message(message.author,"Uh oh, looks like you were trying to say something vulgar in a channel where it isn't allowed. Your message was:\n" + message.content)
+                    print("\tActing")
+                    await self.delete_message(message)
+                    await self.send_message(message.author,"Uh oh, looks like you were trying to say something vulgar in a channel where it isn't allowed. Your message was:\n" + message.content)
+                nsfwchannels.close()
         bannedwords.close()
         
         if message.content.startswith("!help"):
@@ -86,7 +104,11 @@ class Bot(discord.Client):
 \t!play                   Starts playing the first song on the queue.
 \t!about                  Displays information about Rubix.
 \t!banword <word>         [OP] Bans a word from being used in sfw channels.
-\t!getid <name>           Says the id of the named user. @Mention for multiple.`""")
+\t!getid <name>           Says the id of the named user. @Mention for multiple.
+\t!afk                    Toggles afk status.`""")
+
+        elif message.content.startswith("!ping"):
+            await self.send_message(message.channel, "Pong!")
 
         elif message.content.startswith("!about"):
             await self.send_message(message.channel, "`Rubix 1.0.0`")
@@ -98,6 +120,15 @@ class Bot(discord.Client):
             for server in self.servers:
                 counter+=1
             await self.send_message(message.channel, "Serving "+ str(counter) +" servers.")
+
+        elif message.content.startswith("!afk"):
+            for user in self.afkusers:
+                if user == message.author.id:
+                    self.afkusers.remove(user)
+                    await self.send_message(message.channel, message.author.mention +" is no longer afk.")
+                    return
+            self.afkusers.append(message.author.id)
+            await self.send_message(message.channel, message.author.mention +" is now afk.")
 
         elif message.content.startswith("!banword"):
             word=message.content[8:].strip()
@@ -172,4 +203,4 @@ class Bot(discord.Client):
         print("--------------")
 
 rubix=Bot()
-rubix.run("USERNAME","PASSWORD")
+rubix.run("isaakrogers1@gmail.com","Xeta1230")
