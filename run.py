@@ -2,7 +2,7 @@ import asyncio
 import discord
 import random
 
-_VERSION="1.0.5"
+_VERSION="1.0.6"
 
 if not discord.opus.is_loaded():
     discord.opus.load_opus("libopus-0.x64.dll")
