@@ -1,8 +1,9 @@
 import asyncio
 import discord
 import random
+import os
 
-_VERSION="1.0.6"
+_VERSION="1.1.0"
 
 if not discord.opus.is_loaded():
     discord.opus.load_opus("libopus-0.x64.dll")
@@ -51,6 +52,35 @@ class Bot(discord.Client):
     def is_playing(self):
         return self.player is not None and self.player.is_playing()
 
+    def prepend(self,file,newentry):
+        f = open(file,"r")
+        old = f.read()
+        f.close()
+
+        f = open(file,"w")
+        f.write(newentry)
+        f.write(old)
+        f.close()
+
+    async def on_member_update(self,old,new):
+        if old.name == new.name:
+            return
+
+        nickfile = open("data/usr/"+old.id+"/nicks","r")
+        oldnames = nickfile.read()
+        nickfile.close()
+
+        if new.name in oldnames:
+            return
+
+        nickfile = open("data/usr/"+old.id+"/nicks","w")
+        nickfile.write(new.name+"\n")
+        nickfile.write(oldnames)
+        nickfile.close()
+
+    async def on_error(self,event,args):
+        await self.send_message(self.current.channel,"uh oh, something went wrong!\n`"+event+"`")
+
     async def on_message(self,message):
         if message.author == self.user:
             return
@@ -95,23 +125,27 @@ class Bot(discord.Client):
         bannedwords.close()
         
         if message.content.startswith("!help"):
-            await self.send_message(message.channel,"""`Rubix help
+            await self.send_message(message.channel,"""```Rubix help
 \t!ping                   Ensure Rubix is running with a simple command.
 \t!help                   Shows this dialogue.
 \t!join <Voice Channel>   Makes Rubix join a voice channel.
 \t!leave                  Makes Rubix leave the voice channel he's in.
 \t!queue <url>            Queues a Youtube link for playback.
 \t!play                   Starts playing the first song on the queue.
+\t!nowplaying             Says the name of the currently playing track.
+\t!skip                   Skip the currently playing song.
 \t!about                  Displays information about Rubix.
 \t!banword <word>         [OP] Bans a word from being used in sfw channels.
-\t!getid <name>           Says the id of the named user. @Mention for multiple.
-\t!afk                    Toggles afk status.`""")
+\t!getid [name]           Says the id of the named user. @Mention for multiple.
+\t!afk                    Toggles afk status.
+\t!whatgame               Tells what games are being played in this server.
+\t!whois [name]           Tell the name history of someone.```""")
 
         elif message.content.startswith("!ping"):
             await self.send_message(message.channel, "Pong!")
 
         elif message.content.startswith("!about"):
-            await self.send_message(message.channel, "`Rubix 1.0.0`")
+            await self.send_message(message.channel, "`Rubix "+ _VERSION +"`")
             if self.is_voice_connected():
                 await self.send_message(message.channel, "Is in a voice channel.")
             else:
@@ -138,7 +172,7 @@ class Bot(discord.Client):
                 bannedwords.close()
                 await self.delete_message(message)
             else:
-                await self.send_message(message.channel, "You don't have permission to use that.")
+                await self.send_message(message.channel, "You don't have permission to use that, "+ message.author.mention +".")
 
         elif message.content.startswith("!getid"):
             name=message.content[6:].strip()
@@ -161,6 +195,28 @@ class Bot(discord.Client):
                 return
             for roll in rolls:
                 await self.send_message(message.channel,message.author.mention +" rolled a "+ str(roll) +" on a d"+ message.content[5:].strip().split("d")[1] +".")
+
+        elif message.content.startswith("!whois"):
+            name=message.content[6:].strip()
+            targetid=0
+            if name=="":
+                name=message.author.name
+            for member in message.server.members:
+                if member.name==name:
+                    targetid=member.id
+            if targetid == 0: ##try mentions
+                for member in message.mentions:
+                    targetid=member.id
+                    break
+            if targetid==0:
+                await self.send_message(message.channel, "I couldn't find anyone by that name.")
+            else:
+                nicklist = open("data/usr/"+targetid+"/nicks","r")
+                user = discord.utils.get(message.server.members,id=targetid)
+
+                await self.send_message(message.channel, user.mention +" has also used the names:")
+                for nick in nicklist:
+                    await self.send_message(message.channel,nick)
         
         elif message.content.startswith("!join"):
             if self.is_voice_connected():
@@ -175,32 +231,96 @@ class Bot(discord.Client):
 
 
         elif message.content.startswith("!leave"):
+            await self.send_message(message.channel, message.author.mention + " removed me from the voice channel.")
             await self.voice.disconnect()
 
         elif message.content.startswith("!queue"):
             url = message.content[6:].strip()
             await self.songs.put(Audio(message, url))
-            await self.send_message(message.channel,"Queued your link.")
+            await self.send_message(message.channel,"Queued your link, "+ message.author.mention +".")
+
+        elif message.content.startswith("!skip"):
+            if not self.is_voice_connected or not self.player.is_playing():
+                await self.send_message(message.channel, "I'm not playing anything, "+ message.author.mention)
+            self.player.stop()
+            self.loop.call_soon_threadsafe(self.play_next.set)
+            
 
         elif message.content.startswith("!play"):
             if self.player is not None and self.player.is_playing():
-                await self.send_message(message.channel, "I'm already playing something.")
+                await self.send_message(message.channel, "I'm already playing something, " + message.author.mention +".")
                 return
             while True:
                 if not self.is_voice_connected():
-                    await self.send_message(message.channel, "Not connected, can't play anything.")
+                    await self.send_message(message.channel, "Not connected, I can't play anything. Try making me !join first, "+ message.author.mention +".")
                     return
                 self.play_next.clear()
                 self.current = await self.songs.get()
                 self.player = await self.voice.create_ytdl_player(self.current.url, after=self.toggle_next_song)
                 self.player.start()
-                fmt = "Playing {1.title}, requested by {0.requester.mention}"
+                fmt = "Playing {1.title}, requested by {0.requester.mention}."
                 await self.send_message(self.current.channel, fmt.format(self.current,self.player))
                 await self.play_next.wait()
+
+        elif message.content.startswith("!nowplaying"):
+            if self.player is not None and self.player.is_playing():
+                fmt = "Playing {1.title}."
+                await self.send_message(message.channel, fmt.format(self.current,self.player))
+            else:
+                await self.send_message(message.channel, "I'm not playing anything, " + message.author.mention +".")
+
+        elif message.content.startswith("!whatgame"):
+            players={}
+            none=0
+            for member in message.server.members:
+                if member!=self.user:
+                    if member.game == None:
+                        none+=1
+                    else:
+                        if str(member.game) not in players:
+                            players[str(member.game)]=1
+                        else:
+                            players[str(member.game)]+=1
+            if players=={}:
+                await self.send_message(message.channel,"Nobody on the server is playing anything.")
+            else:
+                for game in players:
+                    if players[game] == 1:
+                        await self.send_message(message.channel,"1 person is playing "+ game +".")
+                    else:
+                        await self.send_message(message.channel,str(players[game]) +" people are playing "+ game +".")
+                if none == 1:
+                    await self.send_message(message.channel,"1 person isn't playing anything.")
+                else:
+                    await self.send_message(message.channel,str(none) +" people aren't playing anything.")
+
+        elif message.content.startswith("!"):
+            await self.send_message(message.channel,"I didn't understand that command, "+ message.author.mention +".")
                 
     async def on_ready(self):
         print("Rubix "+ _VERSION)
         print("--------------")
+        for server in self.servers:
+            for member in server.members:
+                if not os.path.exists("data/usr/"+member.id):
+                    os.makedirs("data/usr/"+member.id)
+                try:
+                    nickfile = open("data/usr/"+member.id+"/nicks","r")
+                except FileNotFoundError:
+                    nickfile = open("data/usr/"+member.id+"/nicks","w")
+                    nickfile.close()
+                    nickfile = open("data/usr/"+member.id+"/nicks","r")
 
+                exists=False
+                
+                for line in nickfile:
+                    if member.name==line.strip():
+                        exists=True
+
+                if not exists: ##New nickname
+                    nickfile.close()
+
+                    self.prepend("data/usr/"+member.id+"/nicks",member.name)
+                        
 rubix=Bot()
 rubix.run("isaakrogers1@gmail.com","Xeta1230")
