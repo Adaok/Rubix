@@ -323,4 +323,4 @@ class Bot(discord.Client):
                     self.prepend("data/usr/"+member.id+"/nicks",member.name)
                         
 rubix=Bot()
-rubix.run("isaakrogers1@gmail.com","Xeta1230")
+rubix.run("USERNAME","PASSWORD")
